@@ -1,9 +1,6 @@
-from conans import ConanFile
-from conans.tools import download, unzip, replace_in_file, vcvars_command
-import os
-import shutil
-from conans import CMake, ConfigureEnvironment
-import platform
+from conans import ConanFile, CMake, tools
+from conans.tools import get, replace_in_file, vcvars_command
+import os, shutil
 
 class SDL2TTfConan(ConanFile):
     name = "SDL2_ttf"
@@ -11,47 +8,40 @@ class SDL2TTfConan(ConanFile):
     folder = "SDL2_ttf-%s" % version
     settings = "os", "arch", "compiler", "build_type"
     options = {"shared": [True, False], "fPIC": [True, False]}
-    default_options = '''shared=True
-    fPIC=True'''
+    default_options = 'shared=True', 'fPIC=True'
+    exports = ["CMakeLists.txt"]
     generators = "cmake"
-    url="http://github.com/lasote/conan-SDL2_ttf"
-    requires = "SDL2/2.0.4@lasote/stable", "freetype/2.6.3@lasote/stable"
-    license="MIT"
+    url = "http://github.com/sixten-hilborn/conan-SDL2_ttf"
+    requires = "SDL2/[>=2.0.4]@bincrafters/testing"
+    license = "MIT"
+
+    def requirements(self):
+        #if self.settings.os != "Windows":
+        self.requires("freetype/[>=2.8.1]@bincrafters/stable")
 
     def configure(self):
-        # del self.settings.compiler.libcxx
-        self.options["SDL2"].shared = self.options.shared
+        if self.settings.os == "Windows":
+            self.options.fPIC = False
+        del self.settings.compiler.libcxx
+        #self.options["SDL2"].shared = self.options.shared
 
 
     def source(self):
         zip_name = "%s.tar.gz" % self.folder
-        download("https://www.libsdl.org/projects/SDL_ttf/release/%s" % zip_name, zip_name)
-        unzip(zip_name)
+        tools.download("https://www.libsdl.org/projects/SDL_ttf/release/%s" % zip_name, zip_name)
+        tools.unzip(zip_name)
+        #if self.settings.os == "Windows":
+        #    zip_name = "SDL2_ttf-devel-{0}-VC.zip".format(self.version)
+        #else:
+        #    zip_name = "%s.tar.gz" % self.folder
+        #get("https://www.libsdl.org/projects/SDL_ttf/release/%s" % zip_name)
 
     def build(self):
-        if self.settings.os == "Windows":
-            self.build_with_vs()
-        else:
-            self.build_with_make()
-
-    def build_with_vs(self):
-        env = ConfigureEnvironment(self.deps_cpp_info, self.settings)
-
-        libdirs="<AdditionalLibraryDirectories>"
-        libdirs_ext="<AdditionalLibraryDirectories>$(LIB);"
-        replace_in_file("%s\VisualC\SDL_ttf.vcxproj" % self.folder, libdirs, libdirs_ext)
-        replace_in_file("%s\VisualC\SDL_ttf.vcxproj" % self.folder, "<AdditionalDependencies>", "<AdditionalDependencies>WinMM.lib;version.lib;Imm32.lib;")
-        replace_in_file("%s\VisualC\glfont\glfont.vcxproj" % self.folder, "<Link>", "<Link>%s</AdditionalLibraryDirectories>" % libdirs_ext)
-        replace_in_file("%s\VisualC\glfont\glfont.vcxproj" % self.folder, "<AdditionalDependencies>", "<AdditionalDependencies>WinMM.lib;version.lib;Imm32.lib;")
-        replace_in_file("%s\VisualC\showfont\showfont.vcxproj" % self.folder, "<Link>", "<Link>%s</AdditionalLibraryDirectories>" % libdirs_ext)
-        replace_in_file("%s\VisualC\showfont\showfont.vcxproj" % self.folder, "<AdditionalDependencies>", "<AdditionalDependencies>WinMM.lib;version.lib;Imm32.lib;")
-
-        vcvars_cmd = vcvars_command(self.settings)
-        cd_build = "cd %s\VisualC" % self.folder
-        command = "%s && %s && %s && devenv SDL_ttf.sln /upgrade" % (vcvars_cmd, cd_build, env.command_line)
-        self.output.warn(command)
-        self.run(command)
-        self.run("%s && %s && %s && msbuild SDL_ttf.sln" % (vcvars_cmd, cd_build, env.command_line))
+        #if self.settings.os == "Windows":
+        #    pass
+        #else:
+        #    self.build_with_make()
+        self.build_cmake()
 
     def build_with_make(self):
 
@@ -114,27 +104,39 @@ class SDL2TTfConan(ConanFile):
 
         self.run("cd %s && %s make" % (self.folder, env_line))
 
+    def build_cmake(self):
+        shutil.copy("CMakeLists.txt", "%s/CMakeLists.txt" % self.folder)
+        cmake = CMake(self)
+        cmake.definitions['CMAKE_POSITION_INDEPENDENT_CODE'] = self.options.fPIC
+        cmake.definitions["BUILD_SHARED_LIBS"] = self.options.shared
+
+        source_path = os.path.join(self.build_folder, self.folder)
+        cmake.configure(build_dir='build', source_dir=source_path)
+        cmake.build()
+
     def package(self):
         """ Define your conan structure: headers, libs and data. After building your
             project, this method is called to create a defined structure:
         """
-        self.copy(pattern="SDL_ttf.h", dst="include", src="%s" % self.folder, keep_path=False)
-        self.copy(pattern="SDL_ttf.h", dst="include/SDL2", src="%s" % self.folder, keep_path=False)
+        self.copy(pattern="*SDL_ttf.h", dst="include", src="%s" % self.folder, keep_path=False)
+        self.copy(pattern="*SDL_ttf.h", dst="include/SDL2", src="%s" % self.folder, keep_path=False)
 
         if self.settings.os == "Windows":
-            self.copy(pattern="*.lib", dst="lib", src="%s" % self.folder, keep_path=False)
-            #Don't copy VERSION.dll because it is also provided by Windows and causes a verification error
-            self.copy(pattern="*_ttf.dll", dst="bin", src="%s" % self.folder, keep_path=False)
-            self.copy(pattern="*6.dll", dst="bin", src="%s" % self.folder, keep_path=False)
-            self.copy(pattern="*1.dll", dst="bin", src="%s" % self.folder, keep_path=False)
+            #if self.settings.arch == "x86":
+            #    self.copy(pattern="*.lib", dst="lib", src="%s/lib/x86" % self.folder, keep_path=False)
+            #    self.copy(pattern="*.dll*", dst="bin", src="%s/lib/x86" % self.folder, keep_path=False)
+            #else:
+            #    self.copy(pattern="*.lib", dst="lib", src="%s/lib/x64" % self.folder, keep_path=False)
+            #    self.copy(pattern="*.dll*", dst="bin", src="%s/lib/x64" % self.folder, keep_path=False)
+            self.copy(pattern="*.lib", dst="lib", src="build", keep_path=False)
+            self.copy(pattern="*.dll*", dst="bin", src="build", keep_path=False)
         # UNIX
         elif self.options.shared:
-            self.copy(pattern="*.a", dst="lib", src="%s" % self.folder, keep_path=False)
-            self.copy(pattern="*.a", dst="lib", src="%s" % self.folder, keep_path=False)
+            self.copy(pattern="*.a", dst="lib", src="build", keep_path=False)
+            self.copy(pattern="*.a", dst="lib", src="build", keep_path=False)
         else:
-            self.copy(pattern="*.so*", dst="lib", src="%s" % self.folder, keep_path=False)
-            self.copy(pattern="*.dylib*", dst="lib", src="%s" % self.folder, keep_path=False)
+            self.copy(pattern="*.so*", dst="lib", src="build", keep_path=False)
+            self.copy(pattern="*.dylib*", dst="lib", src="build", keep_path=False)
 
     def package_info(self):
-
         self.cpp_info.libs = ["SDL2_ttf"]
