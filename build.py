@@ -1,12 +1,38 @@
-from conan.packager import ConanMultiPackager
-import platform
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
+from conan.packager import ConanMultiPackager
+from conans import tools
+import importlib
+import os
+
+
+def get_module_location():
+    repo = os.getenv("CONAN_MODULE_REPO", "https://raw.githubusercontent.com/bincrafters/conan-templates")
+    branch = os.getenv("CONAN_MODULE_BRANCH", "package_tools_modules")
+    return repo + "/" + branch
+
+    
+def get_module_name():
+    return os.getenv("CONAN_MODULE_NAME", "build_template_default")
+
+    
+def get_module_filename():
+    return get_module_name() + ".py"
+    
+    
+def get_module_url():
+    return get_module_location() + "/" + get_module_filename()
+
+    
 if __name__ == "__main__":
-    builder = ConanMultiPackager()
-    builder.add_common_builds(pure_c=True, shared_option_name="SD2_ttf:shared")
-    x86_64_builds = []
-    for build in builder.builds: # Problems installing native GL libs for x86
-        if not build[0]["arch"] == "x86" and build[1]["SD2_ttf:shared"] == True:
-            x86_64_builds.append([build[0], build[1]])
-    builder.builds = x86_64_builds
+    
+    tools.download(get_module_url(), get_module_filename(), overwrite=True)
+    
+    module = importlib.import_module(get_module_name())
+    
+    builder = module.get_builder()
+    
     builder.run()
+
+    
